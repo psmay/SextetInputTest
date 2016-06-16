@@ -40,7 +40,7 @@ public class Main {
 	private static final Logger log = Logger.getLogger(Main.class.getName());
 
 	private KeysState keysState = new KeysState();
-	
+
 	private ServiceManager manager;
 
 	private PacketWriterService writer;
@@ -50,8 +50,8 @@ public class Main {
 	// Gets a Service.Listener that requests the ServiceManager to stop on
 	// receipt of a failed, stopping, or terminated event from any of the
 	// services it manages.
-	private Service.Listener getMutualStoppingListener(final String tag) {
-		Service.Listener stoppingListener = new Service.Listener() {
+	private Service.Listener createMutualStopListener(final String tag) {
+		Service.Listener listener = new Service.Listener() {
 
 			@Override
 			public void running() {
@@ -81,15 +81,14 @@ public class Main {
 				manager.stopAsync();
 			}
 		};
-		return stoppingListener;
+		return listener;
 	}
 
 	private abstract static class PacketWriterServiceFactory {
 		abstract PacketWriterService create(Main main);
 	}
 
-	Main(PacketWriterServiceFactory writerFactory) {
-
+	Main(int interval, PacketWriterServiceFactory writerFactory) {
 		Set<Service> services = new HashSet<>();
 
 		writer = writerFactory.create(this);
@@ -117,8 +116,8 @@ public class Main {
 		manager.startAsync();
 	}
 
-	Main() {
-		this(new PacketWriterServiceFactory() {
+	Main(final int interval) {
+		this(interval, new PacketWriterServiceFactory() {
 			@Override
 			PacketWriterService create(Main main) {
 				return main.createPacketWriter();
@@ -126,8 +125,8 @@ public class Main {
 		});
 	}
 
-	Main(final String host, final int port) {
-		this(new PacketWriterServiceFactory() {
+	Main(final String host, final int port, final int interval) {
+		this(interval, new PacketWriterServiceFactory() {
 			@Override
 			PacketWriterService create(Main main) {
 				return main.createPacketWriter(host, port);
@@ -137,35 +136,35 @@ public class Main {
 
 	private KeyPressWindowService createKeyPressWindow() {
 		KeyPressWindowService keyPressWindow = new KeyPressWindowService(this);
-		keyPressWindow.addListener(getMutualStoppingListener("KeyPressWindowService"), MoreExecutors.directExecutor());
+		keyPressWindow.addListener(createMutualStopListener("KeyPressWindowService"), MoreExecutors.directExecutor());
 		return keyPressWindow;
 	}
 
 	private WatchdogService createWatchdog() {
 		WatchdogService watchdog = new WatchdogService(this);
 		watchdog.reset();
-		watchdog.addListener(getMutualStoppingListener("WatchdogService"), MoreExecutors.directExecutor());
+		watchdog.addListener(createMutualStopListener("WatchdogService"), MoreExecutors.directExecutor());
 		return watchdog;
 	}
 
 	private PacketWriterService createPacketWriter(String host, int port) {
 		PacketWriterService writer = new TcpPacketWriterService(this, host, port);
-		writer.addListener(getMutualStoppingListener("TcpPacketWriterService"), MoreExecutors.directExecutor());
+		writer.addListener(createMutualStopListener("TcpPacketWriterService"), MoreExecutors.directExecutor());
 		return writer;
 	}
 
 	private PacketWriterService createPacketWriter() {
 		PacketWriterService writer = new StdoutPacketWriterService(this);
-		writer.addListener(getMutualStoppingListener("StdoutPacketWriterService"), MoreExecutors.directExecutor());
+		writer.addListener(createMutualStopListener("StdoutPacketWriterService"), MoreExecutors.directExecutor());
 		return writer;
 	}
 
 	public static void main(String[] args) {
 		Map<String, String> parameters = new HashMap<>();
 
-		boolean hasMode = false, hasHost = false, hasPort = false;
+		boolean hasMode = false, hasHost = false, hasPort = false, hasInterval = false;
 		String mode = null, host = null;
-		Integer port = null;
+		Integer port = null, interval = null;
 
 		try {
 			for (String arg : args) {
@@ -196,6 +195,12 @@ public class Main {
 					port = parseIntParameter("port", value);
 					break;
 
+				case "interval":
+					ensureNotSet("interval", hasInterval);
+					hasInterval = true;
+					interval = parseIntParameter("interval", value);
+					break;
+
 				default:
 					throw new IllegalArgumentException("Unrecognized parameter name '" + key + "'");
 				}
@@ -222,18 +227,22 @@ public class Main {
 			mode = hasPort ? "tcp" : "stdout";
 		}
 
+		if (!hasInterval) {
+			interval = 1000;
+		}
+
 		if (mode.equals("stdout")) {
 			if (hasHost || hasPort) {
 				throw new IllegalArgumentException("Parameters 'host' and 'port' must be unset when in stdout mode");
 			}
 
-			new Main();
+			new Main(interval);
 		} else if (mode.equals("tcp")) {
 			if (!hasPort) {
 				throw new IllegalArgumentException("Parameter 'port' must be set when in tcp mode");
 			}
-			
-			new Main(host, port);
+
+			new Main(host, port, interval);
 		}
 
 	}
@@ -261,15 +270,74 @@ public class Main {
 		return parts;
 	}
 
+	void keyUpdate(int keyCode, boolean b) {
+		if (keysState.update(keyCode, b)) {
+			Packet p = keysState.getAsPacket();
+
+			writer.sendPacket(p);
+			window.setLabelText("State: " + p.getData());
+		}
+	}
+
+	void watchdogTimeout() {
+		if (writer.isRunning()) {
+			writer.hintSendKeepalive();
+		}
+	}
+
+	void writingPacket(Packet packet) {
+		watchdog.reset();
+	}
+
+	void windowClosing() {
+		manager.stopAsync();
+	}
+	
 	private static void usage(String message) {
-		String[] lines = new String[] { message, "Usage:", "	thisprogram [mode=tcp] [host=HOSTNAME] port=PORTNUMBER",
-				"	thisprogram [mode=stdout]", "Examples:", "	thisprogram mode=stdout		# Open in stdout mode",
-				"	thisprogram			# Same (mode=stdout is default if", "					# port is missing)", "",
-				"	thisprogram mode=tcp port=6761	# Open in tcp mode, listen for",
-				"					# clients on port 6761 of any local", "					# address", "",
-				"	thisprogram port=6761		# Same (mode=tcp is default if port",
-				"					# is specified)", "", "	thisprogram host=localhost port=6761",
-				"					# Same, except only listen on", "					# address localhost", };
+		String[] lines = new String[] { message,
+			"Usage:",
+			"	thisprogram [mode=MODE] [host=HOST] [port=PORT] [interval=INTERVAL]",
+			"",
+			"Examples:",
+			"	thisprogram			# Open in stdout mode (implied by",
+			"					# omission of PORT)",
+			"",
+			"	thisprogram port=6761		# Open in tcp mode (implied by presence of",
+			"					# PORT), listen for client on port",
+			"					# 6761 on any local address",
+			"",
+			"	thisprogram host=localhost port=6761",
+			"					# Same, except only listen on",
+			"					# localhost",
+			"",
+			"Parameters:",
+			"	The order of parameters is not important.",
+			"",
+			"	MODE ('stdout' or 'tcp'; default is 'tcp' if PORT is present or",
+			"	'stdout' otherwise) determines whether output goes to standard",
+			"	output or to a TCP connection accepted on PORT. This is strictly",
+			"	optional; the presence or absence of PORT implies the MODE setting.",
+			"",
+			"	HOST (tcp mode only; default is all local addresses) sets the",
+			"	address on which the tcp-mode service accepts a connection.",
+			"",
+			"	PORT (tcp mode only; 0 .. 65535; no default) sets the port on which",
+			"	the tcp-mode service accepts a connection.",
+			"",
+			"	INTERVAL (default 1000, meaning 1 second) sets the interval, in",
+			"	milliseconds, of a watchdog timer that forces the output of a blank",
+			"	packet if the output remains idle for that amount of time. A",
+			"	non-positive value disables the timer, but doing this is",
+			"	discouraged: This watchdog timer's behavior serves partly as a",
+			"	keepalive for the connection, should one be necessary, partly to",
+			"	allow the tcp mode to detect a disconnect (by way of a failed write)",
+			"	without receiving actual input, and partly to allow the receiving",
+			"	end of the connection, which unfortunately might need to be",
+			"	implemented based on an uninterruptible blocking read, to allow it",
+			"	to recheck its loop variables with a higher frequency, resolving",
+			"	some situations that would otherwise hang the receiver.",
+			"",
+		};
 
 		for (String line : lines) {
 			System.err.println(line);
@@ -277,26 +345,4 @@ public class Main {
 		System.exit(2);
 	}
 
-	void keyUpdate(int keyCode, boolean b) {
-		if(keysState.update(keyCode, b)) {
-			Packet p = keysState.getAsPacket();
-			
-			writer.sendPacket(p);
-			window.setLabelText("State: " + p.getData());
-		}
-	}
-
-	public void watchdogTimeout() {
-		if (writer.isRunning()) {
-			writer.hintSendKeepalive();
-		}
-	}
-
-	public void writingPacket(Packet packet) {
-		watchdog.reset();
-	}
-
-	void windowClosing() {
-		manager.stopAsync();
-	}
 }
