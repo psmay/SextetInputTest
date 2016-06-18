@@ -42,10 +42,15 @@ public class WatchdogService extends AbstractExecutionThreadService {
 	private AtomicBoolean active = new AtomicBoolean(false);
 	private AtomicBoolean continuing = new AtomicBoolean(true);
 
-	private final long interval = TimeUnit.MILLISECONDS.toNanos(1000);
-	
-	public WatchdogService(Main main) {
+	private final long intervalNanos;
+
+	public WatchdogService(Main main, long intervalMillis) {
 		this.main = main;
+		if (intervalMillis > 0) {
+			intervalNanos = TimeUnit.MILLISECONDS.toNanos(intervalMillis);
+		} else {
+			intervalNanos = 0;
+		}
 	}
 
 	@Override
@@ -75,7 +80,7 @@ public class WatchdogService extends AbstractExecutionThreadService {
 	private void timeExpired(long now, long remaining) {
 		if (active.get()) {
 			main.watchdogTimeout();
-			expiration.set(now + interval);
+			expiration.set(now + intervalNanos);
 		} else {
 			expiration.set(Long.MAX_VALUE);
 		}
@@ -96,14 +101,18 @@ public class WatchdogService extends AbstractExecutionThreadService {
 		}
 	}
 
-	void set(long newExpiration) {
+	private void set(long newExpiration) {
 		expiration.set(newExpiration);
 		active.set(true);
 		triggerRecheck();
 	}
-	
+
 	void reset() {
-		set(System.nanoTime() + interval);
+		if (intervalNanos > 0) {
+			set(System.nanoTime() + intervalNanos);
+		} else {
+			unset();
+		}
 	}
 
 	void unset() {

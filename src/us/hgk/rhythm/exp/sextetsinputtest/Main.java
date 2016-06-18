@@ -88,13 +88,13 @@ public class Main {
 		abstract PacketWriterService create(Main main);
 	}
 
-	Main(int interval, PacketWriterServiceFactory writerFactory) {
+	Main(long interval, PacketWriterServiceFactory writerFactory) {
 		Set<Service> services = new HashSet<>();
 
 		writer = writerFactory.create(this);
 		services.add(writer);
 
-		watchdog = createWatchdog();
+		watchdog = createWatchdog(interval);
 		services.add(watchdog);
 
 		window = createKeyPressWindow();
@@ -116,7 +116,7 @@ public class Main {
 		manager.startAsync();
 	}
 
-	Main(final int interval) {
+	Main(final long interval) {
 		this(interval, new PacketWriterServiceFactory() {
 			@Override
 			PacketWriterService create(Main main) {
@@ -125,7 +125,7 @@ public class Main {
 		});
 	}
 
-	Main(final String host, final int port, final int interval) {
+	Main(final String host, final int port, final long interval) {
 		this(interval, new PacketWriterServiceFactory() {
 			@Override
 			PacketWriterService create(Main main) {
@@ -140,8 +140,8 @@ public class Main {
 		return keyPressWindow;
 	}
 
-	private WatchdogService createWatchdog() {
-		WatchdogService watchdog = new WatchdogService(this);
+	private WatchdogService createWatchdog(long intervalMillis) {
+		WatchdogService watchdog = new WatchdogService(this, intervalMillis);
 		watchdog.reset();
 		watchdog.addListener(createMutualStopListener("WatchdogService"), MoreExecutors.directExecutor());
 		return watchdog;
@@ -164,7 +164,8 @@ public class Main {
 
 		boolean hasMode = false, hasHost = false, hasPort = false, hasInterval = false;
 		String mode = null, host = null;
-		Integer port = null, interval = null;
+		Integer port = null;
+		Long interval = null;
 
 		try {
 			for (String arg : args) {
@@ -198,7 +199,7 @@ public class Main {
 				case "interval":
 					ensureNotSet("interval", hasInterval);
 					hasInterval = true;
-					interval = parseIntParameter("interval", value);
+					interval = parseLongParameter("interval", value);
 					break;
 
 				default:
@@ -228,7 +229,7 @@ public class Main {
 		}
 
 		if (!hasInterval) {
-			interval = 1000;
+			interval = 1000L;
 		}
 
 		if (mode.equals("stdout")) {
@@ -255,6 +256,14 @@ public class Main {
 		}
 	}
 
+	private static long parseLongParameter(String paramName, String str) {
+		try {
+			return Long.parseLong(str);
+		} catch (NumberFormatException e) {
+			throw new IllegalArgumentException("Parameter '" + paramName + "' must be an integer");
+		}
+	}
+	
 	private static void ensureNotSet(String paramName, boolean hasParam) {
 		if (hasParam) {
 			throw new IllegalArgumentException("'" + paramName + "' was set more than once");
