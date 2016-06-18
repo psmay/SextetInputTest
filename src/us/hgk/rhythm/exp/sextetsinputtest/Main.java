@@ -21,7 +21,7 @@
  * USE OR OTHER DEALINGS IN THE SOFTWARE.
  * * * * */
 
-package us.hgk.rhythm.exp.sextetsinputdemo;
+package us.hgk.rhythm.exp.sextetsinputtest;
 
 import java.util.HashMap;
 import java.util.HashSet;

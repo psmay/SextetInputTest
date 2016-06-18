@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="SextetInputTest" basedir="." default="main">
+
+	<tstamp>
+		<format property="build.stamp" pattern="yyyyMMddHHmmss'Z'" timezone="GMT+00:00"/>
+	</tstamp>
+
+	<property name="src.dir" value="src"/>
+	<property name="lib.dir" value="lib"/>
+	<property name="build.dir" value="build"/>
+	<property name="dist.dir" value="${build.dir}/dist"/>
+	<property name="classes.dir" value="${build.dir}/classes"/>
+	<property name="jar.dir" value="${build.dir}/jar"/>
+	<property name="jar.path" value="${jar.dir}/${ant.project.name}.jar"/>
+	<property name="distjar.path" value="${dist.dir}/${ant.project.name}-${build.stamp}.jar"/>
+
+	<path id="class.path">
+		<pathelement path="${classes.dir}"/>
+		<fileset dir="lib">
+			<include name="**/*.jar"/>
+		</fileset>
+	</path>
+
+	<property name="main-class" value="us.hgk.rhythm.exp.sextetsinputtest.Main"/>
+
+	<target name="clean">
+		<delete dir="${build.dir}"/>
+	</target>
+
+	<target name="compile">
+		<mkdir dir="${classes.dir}"/>
+		<javac srcdir="${src.dir}" destdir="${classes.dir}" includeantruntime="false">
+			<classpath refid="class.path"/>
+		</javac>
+	</target>
+
+	<target name="jar" depends="compile">
+		<mkdir dir="${jar.dir}"/>
+		<jar destfile="${jar.path}" basedir="${classes.dir}">
+			<manifest>
+				<attribute name="Main-Class" value="${main-class}"/>
+			</manifest>
+		</jar>
+	</target>
+
+	<target name="dist" depends="jar">
+		<mkdir dir="${dist.dir}"/>
+		<copy tofile="${dist.dir}/${ant.project.name}.jar" file="${jar.path}"/>
+		<!--
+			This needs to be rewritten once we get the proguard bit working.
+
+		<copy tofile="${distjar.path}" file="${jar.path}"/>
+		<copy todir="${dist.dir}">
+			<fileset dir="${lib.dir}">
+				<include name="**/*.jar"/>
+				<exclude name="**/*javadoc*"/>
+			</fileset>
+		</copy>
+		-->
+	</target>
+
+	<target name="run" depends="jar">
+		<java jar="${jar.path}" fork="true"/>
+	</target>
+
+	<target name="clean-build" depends="clean,jar"/>
+	<target name="main" depends="clean,run"/>
+</project>

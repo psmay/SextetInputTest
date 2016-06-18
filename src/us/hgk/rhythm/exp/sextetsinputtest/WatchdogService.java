@@ -21,7 +21,7 @@
  * USE OR OTHER DEALINGS IN THE SOFTWARE.
  * * * * */
 
-package us.hgk.rhythm.exp.sextetsinputdemo;
+package us.hgk.rhythm.exp.sextetsinputtest;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
