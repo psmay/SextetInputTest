@@ -1,27 +1,31 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project name="SextetInputTest" basedir="." default="main">
 
+	<property name="main-class" value="us.hgk.rhythm.exp.sextetsinputtest.Main"/>
+
 	<tstamp>
 		<format property="build.stamp" pattern="yyyyMMddHHmmss'Z'" timezone="GMT+00:00"/>
 	</tstamp>
 
 	<property name="src.dir" value="src"/>
-	<property name="lib.dir" value="lib"/>
 	<property name="build.dir" value="build"/>
-	<property name="dist.dir" value="${build.dir}/dist"/>
 	<property name="classes.dir" value="${build.dir}/classes"/>
 	<property name="jar.dir" value="${build.dir}/jar"/>
-	<property name="jar.path" value="${jar.dir}/${ant.project.name}.jar"/>
-	<property name="distjar.path" value="${dist.dir}/${ant.project.name}-${build.stamp}.jar"/>
 
-	<path id="class.path">
-		<pathelement path="${classes.dir}"/>
-		<fileset dir="lib">
-			<include name="**/*.jar"/>
-		</fileset>
+	<property name="lib.dir" value="lib"/>
+	<property name="dist.dir" value="${build.dir}/dist"/>
+	<property name="jar.alone.filename" value="${ant.project.name}-alone.jar"/>
+	<property name="jar.filename" value="${ant.project.name}.jar"/>
+
+	<property name="proguard-context-lib.dir" value="proguard-context-lib"/>
+	<property name="proguard.jar" value="${proguard-context-lib.dir}/proguard.jar"/>
+	<taskdef resource="proguard/ant/task.properties" classpath="${proguard.jar}"/>
+
+	<path id="classpath">
+		<fileset dir="${lib.dir}" includes="**/*.jar"/>
 	</path>
 
-	<property name="main-class" value="us.hgk.rhythm.exp.sextetsinputtest.Main"/>
+	<path id="application" location="${jar.dir}/${jar.alone.filename}"/>
 
 	<target name="clean">
 		<delete dir="${build.dir}"/>
@@ -29,38 +33,73 @@
 
 	<target name="compile">
 		<mkdir dir="${classes.dir}"/>
-		<javac srcdir="${src.dir}" destdir="${classes.dir}" includeantruntime="false">
-			<classpath refid="class.path"/>
-		</javac>
+		<javac srcdir="${src.dir}" destdir="${classes.dir}" source="1.7" target="1.7" includeantruntime="false" classpathref="classpath"/>
 	</target>
 
 	<target name="jar" depends="compile">
 		<mkdir dir="${jar.dir}"/>
-		<jar destfile="${jar.path}" basedir="${classes.dir}">
+
+		<copy todir="${jar.dir}">
+			<fileset dir="${lib.dir}">
+				<include name="**/*.jar"/>
+			</fileset>
+		</copy>
+
+		<manifestclasspath property="manifest.classpath" jarfile="${jar.dir}/${jar.alone.filename}">
+			<classpath>
+				<fileset dir="${jar.dir}" includes="*.jar"/>
+			</classpath>
+		</manifestclasspath>
+
+		<jar destfile="${jar.dir}/${jar.alone.filename}" basedir="${classes.dir}">
 			<manifest>
 				<attribute name="Main-Class" value="${main-class}"/>
+				<attribute name="Class-Path" value="${manifest.classpath}"/>
 			</manifest>
 		</jar>
 	</target>
 
 	<target name="dist" depends="jar">
 		<mkdir dir="${dist.dir}"/>
-		<copy tofile="${dist.dir}/${ant.project.name}.jar" file="${jar.path}"/>
 		<!--
-			This needs to be rewritten once we get the proguard bit working.
-
-		<copy tofile="${distjar.path}" file="${jar.path}"/>
-		<copy todir="${dist.dir}">
-			<fileset dir="${lib.dir}">
-				<include name="**/*.jar"/>
-				<exclude name="**/*javadoc*"/>
-			</fileset>
-		</copy>
+			Ant ${java.home} is not the same as $JAVA_HOME.
+			The relationship is roughly ${java.home}=$JAVA_HOME/jre.
 		-->
+		<proguard optimize="false" obfuscate="false">
+			<injar file="${jar.dir}/${jar.alone.filename}"/>
+			<injar filter="!META-INF/MANIFEST.MF" file="${jar.dir}/guava-19.0.jar"/>
+
+			<libraryjar file="${java.home}/lib/rt.jar"/>
+			<libraryjar file="${proguard-context-lib.dir}/jsr305-3.0.0.jar"/>
+
+			<outjar file="${dist.dir}/${jar.filename}"/>
+
+			<dontwarn filter="com.google.j2objc.annotations.Weak"/>
+			<dontwarn filter="org.codehaus.mojo.animal_sniffer.IgnoreJRERequirement"/>
+
+			<dontnote filter="com.google.common.reflect.**"/>
+			<dontnote filter="com.google.common.eventbus.Subscriber"/>
+			<dontnote filter="com.google.appengine.api.ThreadManager"/>
+			<dontnote filter="com.google.apphosting.api.ApiProxy"/>
+			<dontnote filter="com.google.common.base.Throwables"/>
+			<dontnote filter="com.google.common.base.internal.Finalizer"/>
+			<dontnote filter="com.google.common.cache.Striped64**"/>
+			<dontnote filter="com.google.common.util.concurrent.AbstractFuture$UnsafeAtomicHelper"/>
+			<dontnote filter="com.google.common.util.concurrent.MoreExecutors"/>
+
+			<keepclasseswithmembers access="public">
+				<method access="public static" type="void" name="main" parameters="java.lang.String[]"/>
+			</keepclasseswithmembers>
+		</proguard>
 	</target>
 
 	<target name="run" depends="jar">
-		<java jar="${jar.path}" fork="true"/>
+		<java fork="true" classname="${main-class}">
+			<classpath>
+				<path refid="classpath"/>
+				<path refid="application"/>
+			</classpath>
+		</java>
 	</target>
 
 	<target name="clean-build" depends="clean,jar"/>
